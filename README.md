@@ -31,6 +31,10 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Screenshot
+
+![STM32 CAN Flasher UI](Screenshot.png)
+
 1. Select adapter type (CANable / PCAN) and channel, then click **Connect**
 2. Browse to the build directory containing `*_a.bin` and `*_b.bin` firmware files
 3. Select the module ID (0–15)
