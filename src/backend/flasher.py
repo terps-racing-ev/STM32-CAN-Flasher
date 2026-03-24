@@ -72,8 +72,8 @@ class BankStatus:
 @dataclass
 class HeartbeatInfo:
     """Parsed RESP_READY heartbeat."""
-    version_major: int = 0
-    version_minor: int = 0
+    ready_code: int = 0
+    crc_health: int = 0
     state: int = 0
     last_error: int = 0
     flags: int = 0
@@ -94,6 +94,30 @@ class HeartbeatInfo:
     @property
     def metadata_ready(self) -> bool:
         return bool(self.flags & 0x08)
+
+    @property
+    def can_cmd_received(self) -> bool:
+        return bool(self.flags & 0x10)
+
+    @property
+    def image_info_valid(self) -> bool:
+        return bool(self.flags & 0x20)
+
+    @property
+    def verified_bank_valid(self) -> bool:
+        return bool(self.flags & 0x40)
+
+    @property
+    def jump_pending(self) -> bool:
+        return bool(self.flags & 0x80)
+
+    @property
+    def bank_a_crc_ok(self) -> bool:
+        return bool(self.crc_health & 0x01)
+
+    @property
+    def bank_b_crc_ok(self) -> bool:
+        return bool(self.crc_health & 0x02)
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +225,9 @@ class CANBootloaderFlash:
             if msg and msg.id == CAN_BOOTLOADER_ID and len(msg.data) > 0 and msg.data[0] == RESP_READY:
                 hb = HeartbeatInfo()
                 if len(msg.data) > 1:
-                    hb.version_major = msg.data[1]
+                    hb.ready_code = msg.data[1]
                 if len(msg.data) > 2:
-                    hb.version_minor = msg.data[2]
+                    hb.crc_health = msg.data[2]
                 if len(msg.data) > 3:
                     hb.state = msg.data[3]
                 if len(msg.data) > 4:
@@ -214,7 +238,7 @@ class CANBootloaderFlash:
                     hb.bytes_written = (msg.data[6] << 8) | msg.data[7]
                 self.last_heartbeat = hb
                 self._emit_status(
-                    f"Bootloader READY v{hb.version_major}.{hb.version_minor} "
+                    f"Bootloader READY "
                     f"(active bank {bank_name(hb.active_bank)})"
                 )
                 return True

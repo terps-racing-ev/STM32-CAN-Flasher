@@ -115,6 +115,12 @@ FLAG_VERIFIED_BANK = 0x40     # bit 6
 FLAG_JUMP_PENDING = 0x80      # bit 7
 
 # ---------------------------------------------------------------------------
+# CRC Health Flags (byte 2 of RESP_READY)
+# ---------------------------------------------------------------------------
+CRC_BANK_A_OK = 0x01          # bit 0: Bank A stored CRC matches flash
+CRC_BANK_B_OK = 0x02          # bit 1: Bank B stored CRC matches flash
+
+# ---------------------------------------------------------------------------
 # Memory Layout
 # ---------------------------------------------------------------------------
 BANK_A_ADDRESS = 0x08008000

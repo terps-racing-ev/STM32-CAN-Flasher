@@ -26,8 +26,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("STM32 CAN Flasher")
-        self.setMinimumSize(780, 520)
-        self.resize(860, 620)
+        self.setMinimumSize(780, 600)
+        self.resize(860, 700)
 
         self.adapter: CANAdapter | None = None
         self.flasher: CANBootloaderFlash | None = None
@@ -51,22 +51,21 @@ class MainWindow(QMainWindow):
         self.conn_panel = ConnectionPanel()
         root.addWidget(self.conn_panel)
 
-        # Middle row: Flash panel + right column (control + status) side by side
+        # Middle row: Flash panel + control panel side by side
         mid = QHBoxLayout()
         mid.setSpacing(8)
 
         self.flash_panel = FlashPanel()
         mid.addWidget(self.flash_panel, stretch=3)
 
-        right_col = QVBoxLayout()
-        right_col.setSpacing(8)
         self.control_panel = ControlPanel()
-        right_col.addWidget(self.control_panel)
-        self.status_panel = StatusPanel()
-        right_col.addWidget(self.status_panel)
-        mid.addLayout(right_col, stretch=2)
+        mid.addWidget(self.control_panel, stretch=2)
 
         root.addLayout(mid)
+
+        # Status panel (full width, shows all heartbeat signals)
+        self.status_panel = StatusPanel()
+        root.addWidget(self.status_panel)
 
         # CAN log (collapsible)
         self.can_log = CANLogPanel()

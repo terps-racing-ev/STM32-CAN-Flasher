@@ -37,9 +37,9 @@ class StatusWorker(QThread):
                 if msg.id == CAN_BOOTLOADER_ID and len(msg.data) > 0 and msg.data[0] == RESP_READY:
                     hb = HeartbeatInfo()
                     if len(msg.data) > 1:
-                        hb.version_major = msg.data[1]
+                        hb.ready_code = msg.data[1]
                     if len(msg.data) > 2:
-                        hb.version_minor = msg.data[2]
+                        hb.crc_health = msg.data[2]
                     if len(msg.data) > 3:
                         hb.state = msg.data[3]
                     if len(msg.data) > 4:

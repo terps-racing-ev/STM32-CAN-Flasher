@@ -1,146 +1,134 @@
-"""
-Status Panel
-============
-Displays bank validity, active bank, bootloader state, version, last error.
-"""
+"""Status Panel — shows all heartbeat fields from the BL_Response DBC message."""
 
 from PySide6.QtWidgets import (
-    QGroupBox, QGridLayout, QLabel, QHBoxLayout, QVBoxLayout,
+    QGroupBox, QGridLayout, QLabel, QVBoxLayout, QFrame,
 )
 from PySide6.QtCore import Qt
 
 from src.backend.bootloader_protocol import STATE_NAMES, ERROR_DESCRIPTIONS, bank_name
 
 
-class _BankIndicator(QLabel):
-    """Small coloured pill for bank A or B."""
+_GREEN  = "#a6e3a1"
+_RED    = "#f38ba8"
+_BLUE   = "#89b4fa"
+_DIM    = "#585b70"
 
-    _STYLES = {
-        'active_valid': "background: #a6e3a1; color: #1e1e2e; padding: 3px 10px; border-radius: 10px; font-weight: 700; font-size: 11px;",
-        'inactive_valid': "background: #89b4fa; color: #1e1e2e; padding: 3px 10px; border-radius: 10px; font-weight: 600; font-size: 11px;",
-        'invalid': "background: #f38ba8; color: #1e1e2e; padding: 3px 10px; border-radius: 10px; font-weight: 600; font-size: 11px;",
-        'unknown': "background: #585b70; color: #bac2de; padding: 3px 10px; border-radius: 10px; font-size: 11px;",
-    }
 
-    def __init__(self, label: str, parent=None):
-        super().__init__(label, parent)
-        self.setAlignment(Qt.AlignCenter)
-        self.setMinimumWidth(90)
-        self.set_state('unknown')
-
-    def set_state(self, state: str):
-        self.setStyleSheet(self._STYLES.get(state, self._STYLES['unknown']))
+def _flag_html(on: bool, on_text: str, off_text: str) -> str:
+    """Return coloured HTML for a boolean flag value."""
+    if on:
+        return f'<span style="color:{_GREEN};font-weight:600">{on_text}</span>'
+    return f'<span style="color:{_RED};font-weight:600">{off_text}</span>'
 
 
 class StatusPanel(QGroupBox):
-    """Bank status, bootloader state, version, error display."""
+    """Displays every signal from the BL_Response READY heartbeat."""
 
     def __init__(self, parent=None):
         super().__init__("Bootloader Status", parent)
         layout = QVBoxLayout(self)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
+        layout.setContentsMargins(10, 14, 10, 8)
 
-        # Bank indicators row
-        banks = QHBoxLayout()
-        banks.addWidget(QLabel("Bank A:"))
-        self.bank_a = _BankIndicator("Unknown")
-        banks.addWidget(self.bank_a)
-        banks.addSpacing(16)
-        banks.addWidget(QLabel("Bank B:"))
-        self.bank_b = _BankIndicator("Unknown")
-        banks.addWidget(self.bank_b)
-        banks.addStretch()
-        layout.addLayout(banks)
-
-        # Info grid
         grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(3)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(2)
 
-        lbl = lambda t: self._make_label(t, "section_label")
-        val = lambda t: self._make_label(t, "value_label")
+        # Tracks the next free row in each half (left=cols 0-1, right=cols 3-4)
+        self._left_row = 0
+        self._right_row = 0
 
-        grid.addWidget(lbl("Active Bank"), 0, 0)
-        self.active_label = val("\u2014")
-        grid.addWidget(self.active_label, 0, 1)
+        def _add(name: str, side: str) -> QLabel:
+            if side == "L":
+                r = self._left_row
+                c0, c1 = 0, 1
+                self._left_row += 1
+            else:
+                r = self._right_row
+                c0, c1 = 3, 4
+                self._right_row += 1
+            name_lbl = QLabel(name)
+            name_lbl.setStyleSheet(f"color: {_DIM}; font-size: 11px;")
+            val_lbl = QLabel("\u2014")
+            val_lbl.setTextFormat(Qt.RichText)
+            val_lbl.setStyleSheet("font-size: 11px;")
+            grid.addWidget(name_lbl, r, c0)
+            grid.addWidget(val_lbl, r, c1)
+            return val_lbl
 
-        grid.addWidget(lbl("State"), 0, 2)
-        self.state_label = val("\u2014")
-        grid.addWidget(self.state_label, 0, 3)
+        # Column separator
+        sep_col = QFrame()
+        sep_col.setFrameShape(QFrame.VLine)
+        sep_col.setStyleSheet("color: #3b3b54;")
+        sep_col.setFixedWidth(1)
+        grid.addWidget(sep_col, 0, 2, 14, 1)
 
-        grid.addWidget(lbl("FW Version"), 1, 0)
-        self.version_label = val("\u2014")
-        grid.addWidget(self.version_label, 1, 1)
+        # Left column — core status + bank info
+        self.v_state = _add("State", "L")
+        self.v_last_error = _add("Last Error", "L")
+        self.v_ready_code = _add("Ready Code", "L")
+        self.v_bytes_written = _add("Bytes Written", "L")
+        self.v_active_bank = _add("Active Bank", "L")
+        self.v_bank_a_valid = _add("Bank A Valid", "L")
+        self.v_bank_b_valid = _add("Bank B Valid", "L")
 
-        grid.addWidget(lbl("Last Error"), 1, 2)
-        self.error_label = val("\u2014")
-        grid.addWidget(self.error_label, 1, 3)
-
-        grid.addWidget(lbl("Bytes Written"), 2, 0)
-        self.bytes_label = val("\u2014")
-        grid.addWidget(self.bytes_label, 2, 1)
+        # Right column — CRC + diagnostic flags
+        self.v_bank_a_crc = _add("Bank A CRC", "R")
+        self.v_bank_b_crc = _add("Bank B CRC", "R")
+        self.v_metadata_ready = _add("Metadata Ready", "R")
+        self.v_can_cmd_seen = _add("CAN Command Seen", "R")
+        self.v_image_info = _add("Image Info Valid", "R")
+        self.v_verified_bank = _add("Verified Bank Valid", "R")
+        self.v_jump_pending = _add("Jump Pending", "R")
 
         grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(3, 1)
+        grid.setColumnStretch(4, 1)
         layout.addLayout(grid)
 
-    @staticmethod
-    def _make_label(text: str, obj_name: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setObjectName(obj_name)
-        return lbl
-
     def update_from_heartbeat(self, hb):
-        """Update from a HeartbeatInfo dataclass."""
+        """Update every field from a HeartbeatInfo dataclass."""
+        state_name = STATE_NAMES.get(hb.state, f"UNKNOWN ({hb.state})")
+        self.v_state.setText(f'<span style="color:{_BLUE}">{state_name}</span>')
+
+        err_name = ERROR_DESCRIPTIONS.get(hb.last_error, f"0x{hb.last_error:02X}")
+        err_color = _GREEN if hb.last_error == 0 else _RED
+        self.v_last_error.setText(f'<span style="color:{err_color}">{err_name}</span>')
+
+        self.v_ready_code.setText(f"0x{hb.ready_code:02X}")
+        self.v_bytes_written.setText(str(hb.bytes_written))
+
         active = hb.active_bank
-        self.active_label.setText(f"Bank {bank_name(active)}")
-        self.version_label.setText(f"{hb.version_major}.{hb.version_minor}")
-        self.state_label.setText(STATE_NAMES.get(hb.state, "UNKNOWN"))
-        self.error_label.setText(ERROR_DESCRIPTIONS.get(hb.last_error, f"0x{hb.last_error:02X}"))
-        self.bytes_label.setText(str(hb.bytes_written))
+        self.v_active_bank.setText(
+            f'<span style="color:{_BLUE};">Bank {bank_name(active)}</span>'
+        )
 
-        # Bank A indicator
-        if hb.bank_a_valid:
-            self.bank_a.setText("Valid" + (" (Active)" if active == 0 else ""))
-            self.bank_a.set_state('active_valid' if active == 0 else 'inactive_valid')
-        else:
-            self.bank_a.setText("Invalid")
-            self.bank_a.set_state('invalid')
+        self.v_bank_a_valid.setText(_flag_html(hb.bank_a_valid, "VALID", "INVALID"))
+        self.v_bank_b_valid.setText(_flag_html(hb.bank_b_valid, "VALID", "INVALID"))
+        self.v_bank_a_crc.setText(_flag_html(hb.bank_a_crc_ok, "CRC OK", "CRC FAIL"))
+        self.v_bank_b_crc.setText(_flag_html(hb.bank_b_crc_ok, "CRC OK", "CRC FAIL"))
 
-        # Bank B indicator
-        if hb.bank_b_valid:
-            self.bank_b.setText("Valid" + (" (Active)" if active == 1 else ""))
-            self.bank_b.set_state('active_valid' if active == 1 else 'inactive_valid')
-        else:
-            self.bank_b.setText("Invalid")
-            self.bank_b.set_state('invalid')
+        self.v_metadata_ready.setText(_flag_html(hb.metadata_ready, "READY", "NOT READY"))
+        self.v_can_cmd_seen.setText(_flag_html(hb.can_cmd_received, "YES", "NO"))
+        self.v_image_info.setText(_flag_html(hb.image_info_valid, "VALID", "INVALID"))
+        self.v_verified_bank.setText(_flag_html(hb.verified_bank_valid, "VALID", "INVALID"))
+        self.v_jump_pending.setText(_flag_html(hb.jump_pending, "PENDING", "NO"))
 
     def update_from_bank_status(self, bs):
-        """Update from a BankStatus dataclass."""
-        active = bs.active_bank
-        self.active_label.setText(f"Bank {bank_name(active)}")
-
-        if bs.bank_a_valid:
-            self.bank_a.setText("Valid" + (" (Active)" if active == 0 else ""))
-            self.bank_a.set_state('active_valid' if active == 0 else 'inactive_valid')
-        else:
-            self.bank_a.setText("Invalid")
-            self.bank_a.set_state('invalid')
-
-        if bs.bank_b_valid:
-            self.bank_b.setText("Valid" + (" (Active)" if active == 1 else ""))
-            self.bank_b.set_state('active_valid' if active == 1 else 'inactive_valid')
-        else:
-            self.bank_b.setText("Invalid")
-            self.bank_b.set_state('invalid')
+        """Update bank fields from a BankStatus dataclass."""
+        self.v_active_bank.setText(
+            f'<span style="color:{_BLUE}">Bank {bank_name(bs.active_bank)}</span>'
+        )
+        self.v_bank_a_valid.setText(_flag_html(bool(bs.bank_a_valid), "VALID", "INVALID"))
+        self.v_bank_b_valid.setText(_flag_html(bool(bs.bank_b_valid), "VALID", "INVALID"))
 
     def clear(self):
-        self.bank_a.setText("Unknown")
-        self.bank_a.set_state('unknown')
-        self.bank_b.setText("Unknown")
-        self.bank_b.set_state('unknown')
-        self.active_label.setText("—")
-        self.state_label.setText("—")
-        self.version_label.setText("—")
-        self.error_label.setText("—")
-        self.bytes_label.setText("—")
+        for lbl in (
+            self.v_state, self.v_last_error, self.v_ready_code,
+            self.v_bytes_written, self.v_active_bank,
+            self.v_bank_a_valid, self.v_bank_b_valid,
+            self.v_bank_a_crc, self.v_bank_b_crc,
+            self.v_metadata_ready, self.v_can_cmd_seen,
+            self.v_image_info, self.v_verified_bank,
+            self.v_jump_pending,
+        ):
+            lbl.setText("\u2014")
