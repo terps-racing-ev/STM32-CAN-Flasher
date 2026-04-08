@@ -5,24 +5,29 @@ Firmware directory selection, module ID, progress bar, and flash trigger.
 """
 
 from pathlib import Path
+from typing import List
+
 from PySide6.QtWidgets import (
     QGroupBox, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QSpinBox, QLineEdit, QFileDialog, QCheckBox,
+    QComboBox,
 )
 from PySide6.QtCore import Signal, QSettings
 
+from src.backend.board_config import BoardConfig
 from src.backend.firmware_utils import discover_firmware_files
 
 
 class FlashPanel(QGroupBox):
     """Firmware directory picker, module ID, flash button, progress."""
 
-    flash_requested = Signal(str, int, bool, bool)  # (dir, module, verify, jump)
+    flash_requested = Signal(str, int, int, bool, bool)  # (dir, module, reset_can_id, verify, jump)
     cancel_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, boards: List[BoardConfig], parent=None):
         super().__init__("Flash Firmware", parent)
         self._settings = QSettings("TerpsRacingEV", "STM32-CAN-Flasher")
+        self._boards = boards
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -42,18 +47,30 @@ class FlashPanel(QGroupBox):
         self.file_label.setObjectName("file_missing")
         layout.addWidget(self.file_label)
 
-        # Module + options row
-        opts_row = QHBoxLayout()
-        opts_row.addWidget(QLabel("Module ID:"))
+        # Board + Module row
+        board_row = QHBoxLayout()
+        board_row.addWidget(QLabel("Board:"))
+        self.board_combo = QComboBox()
+        self.board_combo.setMinimumWidth(120)
+        for b in self._boards:
+            self.board_combo.addItem(b.name)
+        self.board_combo.currentIndexChanged.connect(self._on_board_changed)
+        board_row.addWidget(self.board_combo)
+        board_row.addSpacing(16)
+        board_row.addWidget(QLabel("Module ID:"))
         self.module_spin = QSpinBox()
         self.module_spin.setRange(0, 15)
         self.module_spin.setFixedWidth(60)
-        opts_row.addWidget(self.module_spin)
-        opts_row.addSpacing(16)
+        board_row.addWidget(self.module_spin)
+        board_row.addStretch()
+        layout.addLayout(board_row)
+
+        # Options row
+        opts_row = QHBoxLayout()
         self.verify_check = QCheckBox("Read-back Verify")
         self.verify_check.setChecked(True)
         opts_row.addWidget(self.verify_check)
-        opts_row.addSpacing(8)
+        opts_row.addSpacing(16)
         self.jump_check = QCheckBox("Jump to App")
         self.jump_check.setChecked(True)
         opts_row.addWidget(self.jump_check)
@@ -91,6 +108,9 @@ class FlashPanel(QGroupBox):
         if last_dir:
             self.dir_edit.setText(last_dir)
 
+        # Apply initial board selection
+        self._on_board_changed(self.board_combo.currentIndex())
+
     def _browse(self):
         start = self.dir_edit.text() or ""
         d = QFileDialog.getExistingDirectory(self, "Select Firmware Directory", start)
@@ -116,10 +136,25 @@ class FlashPanel(QGroupBox):
         self.file_label.style().unpolish(self.file_label)
         self.file_label.style().polish(self.file_label)
 
+    def _on_board_changed(self, index: int):
+        if 0 <= index < len(self._boards):
+            board = self._boards[index]
+            self.module_spin.setRange(0, board.modules - 1)
+            self.module_spin.setEnabled(board.modules > 1)
+            if board.modules == 1:
+                self.module_spin.setValue(0)
+
+    def _get_reset_can_id(self) -> int:
+        idx = self.board_combo.currentIndex()
+        board = self._boards[idx]
+        module = self.module_spin.value()
+        return board.reset_can_ids[module]
+
     def _on_flash(self):
         self.flash_requested.emit(
             self.dir_edit.text(),
             self.module_spin.value(),
+            self._get_reset_can_id(),
             self.verify_check.isChecked(),
             self.jump_check.isChecked(),
         )
@@ -130,6 +165,7 @@ class FlashPanel(QGroupBox):
         self.browse_btn.setEnabled(not flashing)
         self.dir_edit.setEnabled(not flashing)
         self.module_spin.setEnabled(not flashing)
+        self.board_combo.setEnabled(not flashing)
         self.verify_check.setEnabled(not flashing)
         self.jump_check.setEnabled(not flashing)
         if flashing:

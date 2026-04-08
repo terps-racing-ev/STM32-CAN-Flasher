@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot
 
 from src.backend.can_adapter import CANAdapter
+from src.backend.board_config import load_boards
+from src.backend.bootloader_protocol import BOOTLOADER_RESPONSE_FILTERS
 from src.backend.canable_driver import CANableAdapter, CANableBaudRate
 from src.backend.pcan_driver import PCANAdapter, PCANBaudRate, PCANChannel, PCAN_AVAILABLE
 from src.backend.flasher import CANBootloaderFlash, HeartbeatInfo
@@ -33,6 +35,7 @@ class MainWindow(QMainWindow):
         self.flasher: CANBootloaderFlash | None = None
         self.status_worker: StatusWorker | None = None
         self.flash_worker: FlashWorker | None = None
+        self._boards = load_boards()
 
         self._build_ui()
         self._connect_signals()
@@ -55,10 +58,10 @@ class MainWindow(QMainWindow):
         mid = QHBoxLayout()
         mid.setSpacing(8)
 
-        self.flash_panel = FlashPanel()
+        self.flash_panel = FlashPanel(self._boards)
         mid.addWidget(self.flash_panel, stretch=3)
 
-        self.control_panel = ControlPanel()
+        self.control_panel = ControlPanel(self._boards)
         mid.addWidget(self.control_panel, stretch=2)
 
         root.addLayout(mid)
@@ -111,11 +114,20 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Connection Error", str(e))
             return
 
+        self.adapter.set_receive_filters(BOOTLOADER_RESPONSE_FILTERS)
+
         if not self.adapter.connect():
             QMessageBox.critical(self, "Connection Error",
                                  f"Failed to connect to {adapter_type} on {channel}")
             self.adapter = None
             return
+
+        if not self.adapter.set_receive_filters(BOOTLOADER_RESPONSE_FILTERS):
+            QMessageBox.warning(
+                self,
+                "Filter Warning",
+                "Connected, but failed to apply bootloader receive filters. Performance may degrade on a busy CAN bus.",
+            )
 
         self.flasher = CANBootloaderFlash(self.adapter)
         self.conn_panel.set_connected(True)
@@ -123,10 +135,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Connected: {adapter_type} ch {channel}")
 
         # Start status worker
-        self.status_worker = StatusWorker(self.adapter)
-        self.status_worker.heartbeat_received.connect(self._on_heartbeat)
-        self.status_worker.can_rx.connect(self._on_worker_rx)
-        self.status_worker.start()
+        self._start_status_worker()
 
     @Slot()
     def _on_disconnect(self):
@@ -140,10 +149,23 @@ class MainWindow(QMainWindow):
         self.status_panel.clear()
         self.statusBar().showMessage("Disconnected")
 
-    def _stop_workers(self):
+    def _start_status_worker(self):
+        if not self.adapter or not self.adapter.is_connected():
+            return
+        if self.status_worker and self.status_worker.isRunning():
+            return
+        self.status_worker = StatusWorker(self.adapter)
+        self.status_worker.heartbeat_received.connect(self._on_heartbeat)
+        self.status_worker.can_rx.connect(self._on_worker_rx)
+        self.status_worker.start()
+
+    def _stop_status_worker(self):
         if self.status_worker:
             self.status_worker.stop()
             self.status_worker = None
+
+    def _stop_workers(self):
+        self._stop_status_worker()
         if self.flash_worker and self.flash_worker.isRunning():
             self.flash_worker.request_cancel()
             self.flash_worker.wait(3000)
@@ -161,23 +183,22 @@ class MainWindow(QMainWindow):
 
     # -- flash ------------------------------------------------------------
 
-    @Slot(str, int, bool, bool)
-    def _on_flash(self, firmware_dir: str, module: int, verify: bool, jump: bool):
+    @Slot(str, int, int, bool, bool)
+    def _on_flash(self, firmware_dir: str, module: int, reset_can_id: int, verify: bool, jump: bool):
         if not firmware_dir:
             QMessageBox.warning(self, "Flash", "Select a firmware directory first")
             return
         if not self.flasher:
             return
 
-        # Pause status worker during flash (flasher owns the adapter reads)
-        if self.status_worker:
-            self.status_worker.pause()
+        # Stop status worker during flash so only the flash worker reads the adapter.
+        self._stop_status_worker()
 
         self.flash_panel.set_flashing(True)
         self._set_controls_enabled(False)
 
         self.flash_worker = FlashWorker(
-            self.flasher, firmware_dir, module, verify, jump,
+            self.flasher, firmware_dir, module, reset_can_id, verify, jump,
         )
         self.flash_worker.progress.connect(self.flash_panel.set_progress)
         self.flash_worker.status_update.connect(self.flash_panel.set_status)
@@ -202,8 +223,8 @@ class MainWindow(QMainWindow):
     def _on_flash_done(self, success: bool, summary: str):
         self.flash_panel.set_flashing(False)
         self._set_controls_enabled(True)
-        if self.status_worker:
-            self.status_worker.resume()
+        self.flash_worker = None
+        self._start_status_worker()
         if success:
             self.flash_panel.set_status("Flash complete!")
             self.statusBar().showMessage(summary)
@@ -213,12 +234,12 @@ class MainWindow(QMainWindow):
 
     # -- manual controls --------------------------------------------------
 
-    @Slot(int)
-    def _on_reset(self, module: int):
+    @Slot(int, int)
+    def _on_reset(self, module: int, reset_can_id: int):
         if not self.flasher:
             return
         self.flasher.on_can_tx = lambda cid, data: self.can_log.add_message("TX", cid, data)
-        self.flasher.send_reset_message(module)
+        self.flasher.send_reset_message(module, reset_can_id_override=reset_can_id)
         self.statusBar().showMessage(f"Reset sent to module {module}")
 
     @Slot()

@@ -1,0 +1,21 @@
+[
+    {
+        "name": "BMB Boards",
+        "modules": 6,
+        "reset_can_ids": [
+            "0x08F00F02",
+            "0x08F01F02",
+            "0x08F02F02",
+            "0x08F03F02",
+            "0x08F04F02",
+            "0x08F05F02"
+        ]
+    },
+    {
+        "name": "HVC",
+        "modules": 1,
+        "reset_can_ids": [
+            "0x004001F6"
+        ]
+    }
+]

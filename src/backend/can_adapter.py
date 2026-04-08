@@ -33,6 +33,29 @@ class CANMessage:
         return f"ID: 0x{self.id:08X} [{msg_type}] DLC: {self.dlc} Data: [{data_str}]"
 
 
+@dataclass(frozen=True)
+class CANFilter:
+    """Receive filter definition compatible with python-can backends."""
+
+    can_id: int
+    can_mask: int
+    extended: Optional[bool] = None
+
+    def matches(self, can_id: int, is_extended: bool) -> bool:
+        if self.extended is not None and self.extended != is_extended:
+            return False
+        return (can_id & self.can_mask) == (self.can_id & self.can_mask)
+
+    def to_python_can(self) -> dict:
+        filter_dict = {
+            "can_id": self.can_id,
+            "can_mask": self.can_mask,
+        }
+        if self.extended is not None:
+            filter_dict["extended"] = self.extended
+        return filter_dict
+
+
 class CANAdapter(ABC):
     """Abstract base class for CAN adapters."""
 
@@ -59,6 +82,11 @@ class CANAdapter(ABC):
     @abstractmethod
     def clear_receive_queue(self) -> bool:
         """Drain all pending received messages. Returns True on success."""
+        ...
+
+    @abstractmethod
+    def set_receive_filters(self, filters: Optional[List[CANFilter]]) -> bool:
+        """Configure adapter receive filters. Pass None to clear them."""
         ...
 
     @abstractmethod

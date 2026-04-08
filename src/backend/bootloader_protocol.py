@@ -5,12 +5,23 @@ CAN IDs, command/response codes, error codes, state definitions,
 and timing constants for the STM32L432 CAN bootloader protocol.
 """
 
+from src.backend.can_adapter import CANFilter
+
 # ---------------------------------------------------------------------------
 # CAN IDs — 29-bit Extended
 # ---------------------------------------------------------------------------
 CAN_HOST_ID = 0x18000701        # PC → Bootloader
 CAN_BOOTLOADER_ID = 0x18000700  # Bootloader → PC
 BMS_RESET_CMD_BASE = 0x08F00F02 # Reset MCU command (module ID in bits 15:12)
+EXTENDED_CAN_ID_MASK = 0x1FFFFFFF
+
+BOOTLOADER_RESPONSE_FILTERS = [
+    CANFilter(
+        can_id=CAN_BOOTLOADER_ID,
+        can_mask=EXTENDED_CAN_ID_MASK,
+        extended=True,
+    )
+]
 
 # ---------------------------------------------------------------------------
 # Commands (first byte of host → bootloader frame)

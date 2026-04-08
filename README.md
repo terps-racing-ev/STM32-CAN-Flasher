@@ -6,10 +6,11 @@ PySide6 GUI application for flashing STM32L4 boards over CAN bus using the [STM3
 
 - **Dual-bank flashing** — auto-selects `*_a.bin` / `*_b.bin` for the inactive bank
 - **CAN adapter support** — CANable (gs_usb / candleLight) and PCAN-USB
+- **Adapter-side RX filtering** — accepts only bootloader response frames so the UI stays responsive on busy CAN buses
 - **Reset to bootloader** — sends `CAN_RESET_CMD` to reboot a BMS module into bootloader mode
 - **Stay in bootloader** — prevents the 1-second auto-jump timeout
 - **Bank status display** — shows Bank A/B validity, active bank, bootloader state, firmware version
-- **Collapsible CAN log** — real-time TX/RX traffic with decoded command/response names
+- **Collapsible CAN log** — real-time bootloader TX/RX traffic with decoded command/response names
 - **Progress tracking** — live progress bar with speed and ETA during writes
 - **Read-back verify** — optional CRC verification plus byte-by-byte read-back
 

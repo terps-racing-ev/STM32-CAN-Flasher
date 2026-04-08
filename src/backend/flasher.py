@@ -532,11 +532,14 @@ class CANBootloaderFlash:
         self._emit_status("Jump command sent (bootloader may have jumped)")
         return True
 
-    def send_reset_message(self, module: int) -> bool:
-        if module < 0 or module > 15:
-            self._emit_error(f"Invalid module: {module}")
-            return False
-        rid = reset_can_id(module)
+    def send_reset_message(self, module: int, reset_can_id_override: int | None = None) -> bool:
+        if reset_can_id_override is not None:
+            rid = reset_can_id_override
+        else:
+            if module < 0 or module > 15:
+                self._emit_error(f"Invalid module: {module}")
+                return False
+            rid = reset_can_id(module)
         self._emit_status(f"Resetting module {module} (CAN ID 0x{rid:08X})...")
         if self.on_can_tx:
             self.on_can_tx(rid, bytes(8))

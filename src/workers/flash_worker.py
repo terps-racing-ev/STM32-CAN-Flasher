@@ -21,12 +21,13 @@ class FlashWorker(QThread):
     can_rx = Signal(object)              # CANMessage
 
     def __init__(self, flasher: CANBootloaderFlash, firmware_dir: str,
-                 module: int, verify: bool = True, jump: bool = True,
-                 parent=None):
+                 module: int, reset_can_id: int, verify: bool = True,
+                 jump: bool = True, parent=None):
         super().__init__(parent)
         self.flasher = flasher
         self.firmware_dir = firmware_dir
         self.module = module
+        self.reset_can_id = reset_can_id
         self.verify = verify
         self.jump = jump
 
@@ -40,14 +41,24 @@ class FlashWorker(QThread):
         self.flasher._cancel_requested = False
 
         try:
+            self.flasher.adapter.clear_receive_queue()
+
             # Reset module into bootloader
             self.status_update.emit(f"Resetting module {self.module}...")
-            self.flasher.send_reset_message(self.module)
+            if not self.flasher.send_reset_message(self.module, reset_can_id_override=self.reset_can_id):
+                self.finished_flash.emit(False, "Failed to send reset message")
+                return
 
-            # Wait for bootloader ready
-            if not self.flasher.wait_for_bootloader_ready(timeout=5.0):
+            # Wait for the first READY quickly, before the module can auto-jump.
+            if not self.flasher.wait_for_bootloader_ready(timeout=2.0):
                 self.error_occurred.emit("Bootloader did not respond with READY")
                 self.finished_flash.emit(False, "Bootloader not ready")
+                return
+
+            # Immediately send a bootloader command so the reset window does not expire.
+            if not self.flasher.get_status():
+                self.error_occurred.emit("Bootloader did not respond to initial status request")
+                self.finished_flash.emit(False, "Bootloader handshake failed")
                 return
 
             # Run flash sequence
