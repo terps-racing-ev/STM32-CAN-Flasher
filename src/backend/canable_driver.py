@@ -61,6 +61,9 @@ class CANableAdapter(CANAdapter):
     @staticmethod
     def _setup_libusb_path():
         if sys.platform == 'win32':
+            # Ensure pyusb always uses libusb1 backend on Windows
+            os.environ.setdefault('PYUSB_BACKEND', 'libusb1')
+
             script_dir = os.path.dirname(os.path.abspath(__file__))
             project_dir = os.path.dirname(os.path.dirname(script_dir))
             libusb_path = os.path.join(project_dir, 'libusb-1.0.dll')
