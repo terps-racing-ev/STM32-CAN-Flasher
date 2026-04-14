@@ -24,6 +24,7 @@ from src.ui.status_panel import StatusPanel
 from src.ui.can_log_panel import CANLogPanel
 from src.workers.flash_worker import FlashWorker
 from src.workers.status_worker import StatusWorker
+from src.workers.sequential_flash_worker import SequentialFlashWorker
 
 
 class MainWindow(QMainWindow):
@@ -86,6 +87,7 @@ class MainWindow(QMainWindow):
         self.conn_panel.disconnect_requested.connect(self._on_disconnect)
 
         self.flash_panel.flash_requested.connect(self._on_flash)
+        self.flash_panel.sequential_flash_requested.connect(self._on_sequential_flash)
         self.flash_panel.cancel_requested.connect(self._on_cancel_flash)
 
         self.control_panel.reset_requested.connect(self._on_reset)
@@ -202,6 +204,35 @@ class MainWindow(QMainWindow):
 
         self.flash_worker = FlashWorker(
             self.flasher, firmware_dir, module, reset_can_id, verify, jump,
+        )
+        self.flash_worker.progress.connect(self.flash_panel.set_progress)
+        self.flash_worker.status_update.connect(self.flash_panel.set_status)
+        self.flash_worker.error_occurred.connect(
+            lambda msg: self.statusBar().showMessage(f"Error: {msg}")
+        )
+        self.flash_worker.can_tx.connect(
+            lambda cid, data: self.can_log.add_message("TX", cid, data)
+        )
+        self.flash_worker.can_rx.connect(
+            lambda msg: self.can_log.add_message("RX", msg.id, msg.data, msg.timestamp)
+        )
+        self.flash_worker.finished_flash.connect(self._on_flash_done)
+        self.flash_worker.start()
+
+    @Slot(str, list, bool, bool)
+    def _on_sequential_flash(self, firmware_dir: str, targets: list, verify: bool, jump: bool):
+        if not firmware_dir:
+            QMessageBox.warning(self, "Flash", "Select a firmware directory first")
+            return
+        if not self.flasher:
+            return
+
+        self._stop_status_worker()
+        self.flash_panel.set_flashing(True)
+        self._set_controls_enabled(False)
+
+        self.flash_worker = SequentialFlashWorker(
+            self.flasher, firmware_dir, targets, verify, jump,
         )
         self.flash_worker.progress.connect(self.flash_panel.set_progress)
         self.flash_worker.status_update.connect(self.flash_panel.set_status)

@@ -10,7 +10,7 @@ from typing import List
 from PySide6.QtWidgets import (
     QGroupBox, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QSpinBox, QLineEdit, QFileDialog, QCheckBox,
-    QComboBox,
+    QComboBox, QFrame,
 )
 from PySide6.QtCore import Signal, QSettings
 
@@ -22,6 +22,7 @@ class FlashPanel(QGroupBox):
     """Firmware directory picker, module ID, flash button, progress."""
 
     flash_requested = Signal(str, int, int, bool, bool)  # (dir, module, reset_can_id, verify, jump)
+    sequential_flash_requested = Signal(str, list, bool, bool)  # (dir, [(module, reset_can_id), ...], verify, jump)
     cancel_requested = Signal()
 
     def __init__(self, boards: List[BoardConfig], parent=None):
@@ -64,6 +65,36 @@ class FlashPanel(QGroupBox):
         board_row.addWidget(self.module_spin)
         board_row.addStretch()
         layout.addLayout(board_row)
+
+        # Sequential flash module selection (multi-module boards)
+        self._seq_frame = QFrame()
+        self._seq_frame.setObjectName("seq_frame")
+        seq_layout = QHBoxLayout(self._seq_frame)
+        seq_layout.setContentsMargins(4, 2, 4, 2)
+        seq_layout.setSpacing(6)
+
+        self._seq_check = QCheckBox("Sequential Flash:")
+        self._seq_check.toggled.connect(self._on_seq_toggled)
+        seq_layout.addWidget(self._seq_check)
+
+        self._module_checks_layout = QHBoxLayout()
+        self._module_checks_layout.setSpacing(8)
+        seq_layout.addLayout(self._module_checks_layout)
+        self._module_checkboxes: list[QCheckBox] = []
+
+        seq_layout.addSpacing(8)
+        self._select_all_btn = QPushButton("All")
+        self._select_all_btn.setFixedWidth(40)
+        self._select_all_btn.clicked.connect(self._select_all_modules)
+        seq_layout.addWidget(self._select_all_btn)
+        self._deselect_all_btn = QPushButton("None")
+        self._deselect_all_btn.setFixedWidth(46)
+        self._deselect_all_btn.clicked.connect(self._deselect_all_modules)
+        seq_layout.addWidget(self._deselect_all_btn)
+        seq_layout.addStretch()
+
+        layout.addWidget(self._seq_frame)
+        self._seq_frame.setVisible(False)
 
         # Options row
         opts_row = QHBoxLayout()
@@ -143,6 +174,42 @@ class FlashPanel(QGroupBox):
             self.module_spin.setEnabled(board.modules > 1)
             if board.modules == 1:
                 self.module_spin.setValue(0)
+            self._rebuild_module_checkboxes(board)
+
+    def _rebuild_module_checkboxes(self, board: BoardConfig):
+        # Clear existing checkboxes
+        for cb in self._module_checkboxes:
+            self._module_checks_layout.removeWidget(cb)
+            cb.deleteLater()
+        self._module_checkboxes.clear()
+
+        if board.modules > 1:
+            for i in range(board.modules):
+                cb = QCheckBox(str(i))
+                cb.setChecked(True)
+                self._module_checkboxes.append(cb)
+                self._module_checks_layout.addWidget(cb)
+            self._seq_frame.setVisible(True)
+            self._on_seq_toggled(self._seq_check.isChecked())
+        else:
+            self._seq_frame.setVisible(False)
+            self._seq_check.setChecked(False)
+
+    def _on_seq_toggled(self, checked: bool):
+        for cb in self._module_checkboxes:
+            cb.setEnabled(checked)
+        self._select_all_btn.setEnabled(checked)
+        self._deselect_all_btn.setEnabled(checked)
+        # When sequential is active, hide single module spinner
+        self.module_spin.setEnabled(not checked and self._boards[self.board_combo.currentIndex()].modules > 1)
+
+    def _select_all_modules(self):
+        for cb in self._module_checkboxes:
+            cb.setChecked(True)
+
+    def _deselect_all_modules(self):
+        for cb in self._module_checkboxes:
+            cb.setChecked(False)
 
     def _get_reset_can_id(self) -> int:
         idx = self.board_combo.currentIndex()
@@ -151,13 +218,29 @@ class FlashPanel(QGroupBox):
         return board.reset_can_ids[module]
 
     def _on_flash(self):
-        self.flash_requested.emit(
-            self.dir_edit.text(),
-            self.module_spin.value(),
-            self._get_reset_can_id(),
-            self.verify_check.isChecked(),
-            self.jump_check.isChecked(),
-        )
+        idx = self.board_combo.currentIndex()
+        board = self._boards[idx]
+        if self._seq_check.isChecked() and board.modules > 1:
+            targets = []
+            for i, cb in enumerate(self._module_checkboxes):
+                if cb.isChecked():
+                    targets.append((i, board.reset_can_ids[i]))
+            if not targets:
+                return
+            self.sequential_flash_requested.emit(
+                self.dir_edit.text(),
+                targets,
+                self.verify_check.isChecked(),
+                self.jump_check.isChecked(),
+            )
+        else:
+            self.flash_requested.emit(
+                self.dir_edit.text(),
+                self.module_spin.value(),
+                self._get_reset_can_id(),
+                self.verify_check.isChecked(),
+                self.jump_check.isChecked(),
+            )
 
     def set_flashing(self, flashing: bool):
         self.flash_btn.setEnabled(not flashing)
@@ -168,6 +251,11 @@ class FlashPanel(QGroupBox):
         self.board_combo.setEnabled(not flashing)
         self.verify_check.setEnabled(not flashing)
         self.jump_check.setEnabled(not flashing)
+        self._seq_check.setEnabled(not flashing)
+        self._select_all_btn.setEnabled(not flashing)
+        self._deselect_all_btn.setEnabled(not flashing)
+        for cb in self._module_checkboxes:
+            cb.setEnabled(not flashing)
         if flashing:
             self.progress_bar.setValue(0)
             self.status_label.setText("Starting...")
