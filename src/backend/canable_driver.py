@@ -165,9 +165,10 @@ class CANableAdapter(CANAdapter):
             if self._receive_filters and not self._hardware_filtering:
                 self._apply_receive_filters()
             self._connected = True
-            devices = self.get_available_devices()
-            if self._channel < len(devices):
-                self._device_info = devices[self._channel]
+            if not self._is_linux:
+                devices = self.get_available_devices()
+                if isinstance(self._channel, int) and self._channel < len(devices):
+                    self._device_info = devices[self._channel]
             return True
         except Exception:
             # Clean up partially-created Bus to avoid "not properly shut down"
