@@ -1,14 +1,15 @@
 """
 CANable Driver
 ==============
-Adapter for CANable USB-to-CAN devices using candleLight firmware (gs_usb).
-Requires: python-can, pyusb, libusb-1.0.dll (Windows)
+Adapter for CANable USB-to-CAN devices.
+- Windows: gs_usb via libusb (python-can, pyusb, libusb-1.0.dll)
+- Linux: SocketCAN (can0, can1, etc.)
 """
 
 import os
 import sys
 import time
-from typing import Optional, List
+from typing import Optional, List, Union
 from enum import Enum
 
 try:
@@ -46,9 +47,11 @@ GS_USB_DEVICES = [
 
 
 class CANableAdapter(CANAdapter):
-    """CANable adapter using gs_usb/Candle API via libusb."""
+    """CANable adapter using gs_usb (Windows) or SocketCAN (Linux)."""
 
-    def __init__(self, channel: int = 0, baudrate: CANableBaudRate = CANableBaudRate.BAUD_500K):
+    _is_linux = sys.platform.startswith('linux')
+
+    def __init__(self, channel: Union[int, str] = 0, baudrate: CANableBaudRate = CANableBaudRate.BAUD_500K):
         self._bus: Optional[Bus] = None
         self._channel = channel
         self._baudrate = baudrate
@@ -56,7 +59,8 @@ class CANableAdapter(CANAdapter):
         self._device_info: Optional[dict] = None
         self._receive_filters: Optional[List[CANFilter]] = None
         self._hardware_filtering = False
-        self._setup_libusb_path()
+        if not self._is_linux:
+            self._setup_libusb_path()
 
     @staticmethod
     def _setup_libusb_path():
@@ -137,11 +141,17 @@ class CANableAdapter(CANAdapter):
         if self._connected:
             return False
         try:
-            bus_kwargs = {
-                'interface': 'gs_usb',
-                'channel': self._channel,
-                'bitrate': self._baudrate.value,
-            }
+            if self._is_linux:
+                bus_kwargs = {
+                    'interface': 'socketcan',
+                    'channel': str(self._channel),
+                }
+            else:
+                bus_kwargs = {
+                    'interface': 'gs_usb',
+                    'channel': self._channel,
+                    'bitrate': self._baudrate.value,
+                }
             python_can_filters = self._python_can_filters()
             if python_can_filters is not None:
                 bus_kwargs['can_filters'] = python_can_filters

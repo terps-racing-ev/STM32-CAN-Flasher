@@ -4,10 +4,14 @@ Connection Panel
 Adapter type selection, channel configuration, and connect/disconnect.
 """
 
+import sys
+
 from PySide6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QComboBox, QPushButton,
 )
 from PySide6.QtCore import Signal
+
+_IS_LINUX = sys.platform.startswith('linux')
 
 
 class ConnectionPanel(QGroupBox):
@@ -31,7 +35,10 @@ class ConnectionPanel(QGroupBox):
         layout.addWidget(QLabel("Channel:"))
         self.channel_combo = QComboBox()
         self.channel_combo.setEditable(True)
-        self.channel_combo.addItems(["0", "1", "2"])
+        if _IS_LINUX:
+            self.channel_combo.addItems(["can0", "can1"])
+        else:
+            self.channel_combo.addItems(["0", "1", "2"])
         self.channel_combo.setMinimumWidth(70)
         layout.addWidget(self.channel_combo)
 
@@ -60,6 +67,8 @@ class ConnectionPanel(QGroupBox):
         self.channel_combo.clear()
         if text == "PCAN":
             self.channel_combo.addItems([f"USB{i}" for i in range(1, 17)])
+        elif _IS_LINUX:
+            self.channel_combo.addItems(["can0", "can1"])
         else:
             self.channel_combo.addItems(["0", "1", "2"])
 

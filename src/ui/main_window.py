@@ -4,6 +4,8 @@ Main Window
 Top-level window that orchestrates all panels and workers.
 """
 
+import sys
+
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QMessageBox, QStatusBar,
 )
@@ -101,7 +103,8 @@ class MainWindow(QMainWindow):
     def _on_connect(self, adapter_type: str, channel: str):
         try:
             if adapter_type == "CANable":
-                self.adapter = CANableAdapter(channel=int(channel))
+                ch = channel if sys.platform.startswith('linux') else int(channel)
+                self.adapter = CANableAdapter(channel=ch)
             elif adapter_type == "PCAN":
                 if not PCAN_AVAILABLE:
                     QMessageBox.critical(self, "Error", "PCAN drivers not available")
