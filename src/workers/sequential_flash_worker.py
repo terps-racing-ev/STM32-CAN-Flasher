@@ -36,7 +36,6 @@ class SequentialFlashWorker(QThread):
     def run(self):
         total = len(self.targets)
         passed = 0
-        failed_modules: list[int] = []
 
         self.flasher.on_can_tx = lambda cid, data: self.can_tx.emit(cid, data)
         self.flasher.on_can_rx = lambda msg: self.can_rx.emit(msg)
@@ -46,6 +45,15 @@ class SequentialFlashWorker(QThread):
             if self._cancel:
                 self.finished_flash.emit(False, f"Cancelled after {passed}/{total} modules")
                 return
+
+            # Delay between modules (not before the first one)
+            if i > 0:
+                self.status_update.emit(f"Waiting 5s before module {module}...")
+                for _ in range(50):
+                    if self._cancel:
+                        self.finished_flash.emit(False, f"Cancelled after {passed}/{total} modules")
+                        return
+                    self.msleep(100)
 
             base_pct = int(i / total * 100)
             label = f"[{i + 1}/{total}] Module {module}"
@@ -66,18 +74,18 @@ class SequentialFlashWorker(QThread):
 
                 if not self.flasher.send_reset_message(module, reset_can_id_override=reset_can_id):
                     self.error_occurred.emit(f"{label}: failed to send reset")
-                    failed_modules.append(module)
-                    continue
+                    self.finished_flash.emit(False, f"Failed at module {module}: could not send reset ({passed}/{total} completed)")
+                    return
 
                 if not self.flasher.wait_for_bootloader_ready(timeout=2.0):
                     self.error_occurred.emit(f"{label}: bootloader not ready")
-                    failed_modules.append(module)
-                    continue
+                    self.finished_flash.emit(False, f"Failed at module {module}: bootloader not ready ({passed}/{total} completed)")
+                    return
 
                 if not self.flasher.get_status():
                     self.error_occurred.emit(f"{label}: handshake failed")
-                    failed_modules.append(module)
-                    continue
+                    self.finished_flash.emit(False, f"Failed at module {module}: handshake failed ({passed}/{total} completed)")
+                    return
 
                 fw_path = Path(self.firmware_dir)
                 ok = self.flasher.flash_firmware(
@@ -88,19 +96,16 @@ class SequentialFlashWorker(QThread):
                     passed += 1
                     _progress(100, "Done")
                 else:
-                    failed_modules.append(module)
+                    self.finished_flash.emit(False, f"Failed at module {module}: flash failed ({passed}/{total} completed)")
+                    return
 
             except Exception as e:
                 self.error_occurred.emit(f"{label}: {e}")
-                failed_modules.append(module)
+                self.finished_flash.emit(False, f"Failed at module {module}: {e} ({passed}/{total} completed)")
+                return
 
         self.progress.emit(100, "Sequential flash complete")
-
-        if failed_modules:
-            summary = f"Completed {passed}/{total}. Failed modules: {failed_modules}"
-            self.finished_flash.emit(False, summary)
-        else:
-            self.finished_flash.emit(True, f"All {total} modules flashed successfully")
+        self.finished_flash.emit(True, f"All {total} modules flashed successfully")
 
     def request_cancel(self):
         self._cancel = True
