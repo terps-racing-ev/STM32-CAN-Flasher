@@ -21,7 +21,7 @@
         "name": "MOBO",
         "modules": 1,
         "reset_can_ids": [
-            "0x004001F7"
+            "0x002001F7"
         ]
     }
 ]
