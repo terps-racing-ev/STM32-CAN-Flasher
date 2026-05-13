@@ -18,10 +18,11 @@
             "0x004001F6"
         ]
     },
+    {
         "name": "MOBO",
         "modules": 1,
         "reset_can_ids": [
             "0x002001F7"
         ]
-    },
+    }
 ]
