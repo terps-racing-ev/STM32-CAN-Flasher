@@ -7,6 +7,7 @@ Adapter for CANable USB-to-CAN devices.
 """
 
 import os
+import re
 import sys
 import time
 from typing import Optional, List, Union
@@ -63,6 +64,33 @@ class CANableAdapter(CANAdapter):
             self._setup_libusb_path()
 
     @staticmethod
+    def _list_socketcan_interfaces() -> List[str]:
+        """Return Linux SocketCAN interface names (e.g., can0, can1, can2)."""
+        net_class_dir = '/sys/class/net'
+        if not os.path.isdir(net_class_dir):
+            return []
+
+        try:
+            names = [
+                name for name in os.listdir(net_class_dir)
+                if re.fullmatch(r'can\d+', name)
+            ]
+            return sorted(names, key=lambda name: int(name[3:]))
+        except Exception:
+            return []
+
+    @staticmethod
+    def _normalize_linux_channel(channel: Union[int, str]) -> str:
+        """Normalize Linux SocketCAN channel values to canX format."""
+        if isinstance(channel, int):
+            return f"can{channel}"
+
+        channel_str = str(channel).strip().lower()
+        if channel_str.isdigit():
+            return f"can{channel_str}"
+        return channel_str
+
+    @staticmethod
     def _setup_libusb_path():
         if sys.platform == 'win32':
             # Ensure pyusb always uses libusb1 backend on Windows
@@ -76,6 +104,16 @@ class CANableAdapter(CANAdapter):
 
     def get_available_devices(self) -> List[dict]:
         devices: List[dict] = []
+
+        if self._is_linux:
+            for iface in self._list_socketcan_interfaces():
+                devices.append({
+                    'index': int(iface[3:]),
+                    'channel': iface,
+                    'description': f"SocketCAN {iface}",
+                })
+            return devices
+
         if usb is None:
             return devices
         try:
@@ -144,7 +182,7 @@ class CANableAdapter(CANAdapter):
             if self._is_linux:
                 bus_kwargs = {
                     'interface': 'socketcan',
-                    'channel': str(self._channel),
+                    'channel': self._normalize_linux_channel(self._channel),
                 }
             else:
                 bus_kwargs = {

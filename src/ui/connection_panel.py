@@ -5,6 +5,7 @@ Adapter type selection, channel configuration, and connect/disconnect.
 """
 
 import sys
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QComboBox, QPushButton,
@@ -12,6 +13,25 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal
 
 _IS_LINUX = sys.platform.startswith('linux')
+
+
+def _linux_can_channels() -> list[str]:
+    """Discover SocketCAN channels from sysfs, with sensible fallbacks."""
+    if not _IS_LINUX:
+        return []
+
+    net_dir = Path('/sys/class/net')
+    channels = []
+    if net_dir.exists():
+        for iface in net_dir.iterdir():
+            name = iface.name
+            if name.startswith('can') and name[3:].isdigit():
+                channels.append(name)
+
+    if channels:
+        return sorted(channels, key=lambda name: int(name[3:]))
+
+    return ["can0", "can1", "can2"]
 
 
 class ConnectionPanel(QGroupBox):
@@ -36,7 +56,7 @@ class ConnectionPanel(QGroupBox):
         self.channel_combo = QComboBox()
         self.channel_combo.setEditable(True)
         if _IS_LINUX:
-            self.channel_combo.addItems(["can0", "can1"])
+            self.channel_combo.addItems(_linux_can_channels())
         else:
             self.channel_combo.addItems(["0", "1", "2"])
         self.channel_combo.setMinimumWidth(70)
@@ -68,7 +88,7 @@ class ConnectionPanel(QGroupBox):
         if text == "PCAN":
             self.channel_combo.addItems([f"USB{i}" for i in range(1, 17)])
         elif _IS_LINUX:
-            self.channel_combo.addItems(["can0", "can1"])
+            self.channel_combo.addItems(_linux_can_channels())
         else:
             self.channel_combo.addItems(["0", "1", "2"])
 
